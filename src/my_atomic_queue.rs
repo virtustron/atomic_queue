@@ -8,6 +8,7 @@ use core::sync::atomic::{self, AtomicUsize, Ordering};
 use ::std::boxed::Box;
 
 use crossbeam_utils::CachePadded;
+use crossbeam_utils::Backoff;
 
 
 struct MySlot<T> {
@@ -54,6 +55,50 @@ impl<T> MyAtomicQueue<T> {
             buffer,
             capacity,
             _marker: PhantomData,
+        }
+    }
+
+    pub fn push(&self, value: T) -> Result<(), T> {
+        let backoff = Backoff::new(); 
+        let mut tail = self.tail.load(Ordering::Relaxed);
+
+        loop {
+            let slot = unsafe { &*self.buffer.add(tail) };
+            let stamp = slot.stamp.load(Ordering::Acquire);
+
+            // If the tail and the stamp match, we may attempt to push.
+            if tail == stamp {
+                let new_tail = if tail + 1 < self.capacity {
+                    tail + 1
+                } else {
+                    return Err(value);
+                };
+
+                // Try moving the tail.
+                match self.tail.compare_exchange_weak(
+                    tail,
+                    new_tail,
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        // Write the value into the slot and update the stamp.
+                        unsafe {
+                            slot.value.get().write(MaybeUninit::new(value));
+                        }
+                        slot.stamp.store(tail + 1, Ordering::Release);
+                        return Ok(());
+                    }
+                    Err(t) => {
+                        tail = t;
+                        backoff.spin();
+                    }
+                }
+            } else {
+                // Snooze because we need to wait for the stamp to get updated.
+                backoff.snooze();
+                tail = self.tail.load(Ordering::Relaxed);
+            }
         }
     }
 }
