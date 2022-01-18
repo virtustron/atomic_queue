@@ -12,7 +12,8 @@ use crossbeam_utils::Backoff;
 
 
 struct MySlot<T> {
-    stamp: AtomicUsize,                     // position in queue to compair with "head" and "tail"
+    stamp: AtomicUsize,                     // contains next element index 
+                                            //   position in queue to compair with "head" and "tail"
     value: UnsafeCell<MaybeUninit<T>>,      // value of element in queue
 }
 
@@ -61,6 +62,7 @@ impl<T> MyAtomicQueue<T> {
     pub fn push(&self, value: T) -> Result<(), T> {
         let backoff = Backoff::new(); 
         let mut tail = self.tail.load(Ordering::Relaxed);
+        let head = self.head.load(Ordering::Relaxed);
 
         loop {
             let slot = unsafe { &*self.buffer.add(tail) };         // shift pointer to `tail`
@@ -68,7 +70,7 @@ impl<T> MyAtomicQueue<T> {
 
             // If the tail and the stamp match, we may attempt to push.
             if tail == stamp {
-                let new_tail = if tail + 1 < self.capacity {
+                let new_tail = if tail - head < self.capacity {
                     tail + 1
                 } else {
                     return Err(value);
@@ -110,7 +112,7 @@ impl<T> MyAtomicQueue<T> {
             let slot = unsafe { &*self.buffer.add(head) };
             let stamp = slot.stamp.load(Ordering::Acquire);    // "after" can't move "before"
 
-            // ??? If the the stamp is ahead of the head by 1, we may attempt to pop.
+            // If the the stamp is ahead of the head by 1, we may attempt to pop.
             if head + 1 == stamp {
                 let new = if head + 1 < self.capacity {
                     head + 1
@@ -174,7 +176,7 @@ impl<T> MyAtomicQueue<T> {
         let tail = self.tail.load(Ordering::SeqCst);
         let head = self.head.load(Ordering::SeqCst);
        
-        tail - head + 1 == self.capacity
+        tail - head == self.capacity
     }
 
     // Returns the number of elements in the queue.
@@ -186,7 +188,7 @@ impl<T> MyAtomicQueue<T> {
             if tail == head {
                 return 0
             } else {
-                return tail - head + 1
+                return tail - head
             }
         }
     }
