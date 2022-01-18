@@ -155,4 +155,39 @@ impl<T> MyAtomicQueue<T> {
             }
         }
     }
+
+    // Returns the capacity of the queue.
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    // Returns `true` if the queue is empty.
+    pub fn is_empty(&self) -> bool {
+        let head = self.head.load(Ordering::SeqCst);
+        let tail = self.tail.load(Ordering::SeqCst);
+
+        tail == head
+    }
+
+    // Returns `true` if the queue is full.
+    pub fn is_full(&self) -> bool {
+        let tail = self.tail.load(Ordering::SeqCst);
+        let head = self.head.load(Ordering::SeqCst);
+       
+        tail - head + 1 == self.capacity
+    }
+
+    // Returns the number of elements in the queue.
+    pub fn len(&self) -> usize {
+        loop {
+            let tail = self.tail.load(Ordering::SeqCst);
+            let head = self.head.load(Ordering::SeqCst);
+
+            if tail == head {
+                return 0
+            } else {
+                return tail - head + 1
+            }
+        }
+    }
 }
