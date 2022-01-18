@@ -63,8 +63,8 @@ impl<T> MyAtomicQueue<T> {
         let mut tail = self.tail.load(Ordering::Relaxed);
 
         loop {
-            let slot = unsafe { &*self.buffer.add(tail) };
-            let stamp = slot.stamp.load(Ordering::Acquire);
+            let slot = unsafe { &*self.buffer.add(tail) };         // shift pointer to `tail`
+            let stamp = slot.stamp.load(Ordering::Acquire);        // "after" can't move "before"
 
             // If the tail and the stamp match, we may attempt to push.
             if tail == stamp {
@@ -78,15 +78,15 @@ impl<T> MyAtomicQueue<T> {
                 match self.tail.compare_exchange_weak(
                     tail,
                     new_tail,
-                    Ordering::SeqCst,
-                    Ordering::Relaxed,
+                    Ordering::SeqCst,    // success
+                    Ordering::Relaxed,   // failure
                 ) {
                     Ok(_) => {
                         // Write the value into the slot and update the stamp.
                         unsafe {
                             slot.value.get().write(MaybeUninit::new(value));
                         }
-                        slot.stamp.store(tail + 1, Ordering::Release);
+                        slot.stamp.store(tail + 1, Ordering::Release);   // "before" can't move after
                         return Ok(());
                     }
                     Err(t) => {
@@ -98,6 +98,60 @@ impl<T> MyAtomicQueue<T> {
                 // Snooze because we need to wait for the stamp to get updated.
                 backoff.snooze();
                 tail = self.tail.load(Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn pop(&self) -> Option<T> {
+        let backoff = Backoff::new();
+        let mut head = self.head.load(Ordering::Relaxed);
+
+        loop {
+            let slot = unsafe { &*self.buffer.add(head) };
+            let stamp = slot.stamp.load(Ordering::Acquire);    // "after" can't move "before"
+
+            // ??? If the the stamp is ahead of the head by 1, we may attempt to pop.
+            if head + 1 == stamp {
+                let new = if head + 1 < self.capacity {
+                    head + 1
+                } else {
+                    return None;
+                };
+
+                // Try moving the head.
+                match self.head.compare_exchange_weak(
+                    head,
+                    new,
+                    Ordering::SeqCst,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => {
+                        // Read the value from the slot and update the stamp.
+                        let msg = unsafe { slot.value.get().read().assume_init() };
+                        slot.stamp.store(head, Ordering::Release);
+                        return Some(msg);
+                    }
+                    Err(h) => {
+                        head = h;
+                        backoff.spin();
+                    }
+                }
+            } else if stamp == head {
+                atomic::fence(Ordering::SeqCst);                    // prevents the compiler and CPU from reordering 
+                                                                    //   certain types of memory operations around it
+                let tail = self.tail.load(Ordering::Relaxed);
+
+                // If the tail equals the head, that means the channel is empty.
+                if tail == head {
+                    return None;
+                }
+
+                backoff.spin();
+                head = self.head.load(Ordering::Relaxed);
+            } else {
+                // Snooze because we need to wait for the stamp to get updated.
+                backoff.snooze();
+                head = self.head.load(Ordering::Relaxed);
             }
         }
     }
