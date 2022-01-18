@@ -1,4 +1,43 @@
+use std::thread;
+use std::sync::Arc;
+
 use crate::my_atomic_queue::MyAtomicQueue;
+
+
+#[test]
+fn push_two_elements_multithread() {
+    const ELEMENTS_COUNT: usize = 10;
+        
+    let queue = Arc::new(MyAtomicQueue::new(ELEMENTS_COUNT));
+
+    let mut handles = vec![];
+
+    for _ in 0..ELEMENTS_COUNT {
+        let temp_queue = queue.clone();
+
+        let handle = thread::spawn(move || {
+            assert_eq!(temp_queue.push('a'), Ok(()));
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let final_queue_result = Arc::try_unwrap(queue);
+    
+    match final_queue_result {
+        Ok(final_queue) => {
+            assert_eq!(final_queue.len(), ELEMENTS_COUNT);
+        }
+
+        Err(final_queue) => {
+            assert_eq!(final_queue.len(), ELEMENTS_COUNT);
+        }
+    }    
+}
 
 #[test]
 fn push_two_elements_succesful() {
@@ -7,7 +46,6 @@ fn push_two_elements_succesful() {
     assert_eq!(q.push('a'), Ok(()));
     assert_eq!(q.push('b'), Ok(()));
 }
-
 
 #[test]
 fn pop_element() {

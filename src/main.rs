@@ -1,19 +1,44 @@
 mod my_atomic_queue;
 
+use std::thread;
+use std::sync::Arc;
 use crate::my_atomic_queue::MyAtomicQueue;
+
 
 fn main() {
     println!("Hello, atomic!");
 
-    let q = MyAtomicQueue::new(100);
+    const ELEMENTS_COUNT: usize = 10;
+        
+    let queue = Arc::new(MyAtomicQueue::new(ELEMENTS_COUNT));
+
+    let mut handles = vec![];
+
+    for _ in 0..ELEMENTS_COUNT {
+        let temp_queue = queue.clone();
+
+        let handle = thread::spawn(move || {
+            assert_eq!(temp_queue.push('a'), Ok(()));
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    let final_queue_result = Arc::try_unwrap(queue);
     
-    assert_eq!(q.len(), 0);
+    match final_queue_result {
+        Ok(final_queue) => {
+            assert_eq!(final_queue.len(), ELEMENTS_COUNT);
+        }
 
-    q.push(10).unwrap();
-    assert_eq!(q.len(), 1);
-
-    q.push(20).unwrap();
-    assert_eq!(q.len(), 2);
+        Err(final_queue) => {
+            assert_eq!(final_queue.len(), ELEMENTS_COUNT);
+        }
+    }    
     
 }
 
