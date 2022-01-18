@@ -14,10 +14,11 @@ fn main() {
 
     let mut handles = vec![];
 
-    for _ in 0..ELEMENTS_COUNT {
+    for i in 0..ELEMENTS_COUNT {
         let temp_queue = queue.clone();
 
         let handle = thread::spawn(move || {
+            println!("thread {} started", i);
             assert_eq!(temp_queue.push('a'), Ok(()));
         });
 
