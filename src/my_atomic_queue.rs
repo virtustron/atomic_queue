@@ -26,8 +26,8 @@ pub struct MyAtomicQueue<T> {
     _marker: PhantomData<T>,            // indicates that this scruct "contains" elements of type `T` (lifetime corresponding purpuses)
 }
 
-unsafe impl<T: Send> Sync for MyAtomicQueue<T> {}
 unsafe impl<T: Send> Send for MyAtomicQueue<T> {}
+unsafe impl<T: Sync> Sync for MyAtomicQueue<T> {}
 
 impl<T> MyAtomicQueue<T> {
 
